@@ -461,11 +461,4 @@ Consistent JSON responses via Laravel Resources:
 - `UserResource` - User data formatting
 - `ProductResource` - Product data with conditional includes
 
-## License
-
-MIT License
-
-## Support
-
-For issues or questions, contact: hr@aliensoft.co.ke
-"# laravel_test_interview" 
+ 
