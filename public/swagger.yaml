@@ -1,0 +1,589 @@
+openapi: 3.0.0
+info:
+  title: Laravel Products API
+  description: |
+    A versioned REST API for managing products with authentication, CRUD operations, filtering/sorting, and file uploads.
+
+    ## Features
+    - Token-based authentication (Laravel Sanctum)
+    - Product CRUD with authorization
+    - Advanced filtering and sorting
+    - Pagination
+    - File uploads
+    - Clean architecture with Action classes and DTOs
+
+    ## Test Users
+    - **Admin**: admin@example.com / password
+    - **Normal User**: user@example.com / password
+  version: 1.0.0
+  contact:
+    email: hr@aliensoft.co.ke
+
+servers:
+  - url: http://localhost:8000/api/v1
+    description: Local development server
+
+tags:
+  - name: Authentication
+    description: User authentication endpoints
+  - name: Products
+    description: Product management endpoints
+
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+
+  schemas:
+    User:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        name:
+          type: string
+          example: Admin User
+        email:
+          type: string
+          format: email
+          example: admin@example.com
+        role:
+          type: string
+          enum: [admin, user]
+          example: admin
+
+    Product:
+      type: object
+      properties:
+        id:
+          type: integer
+          example: 1
+        title:
+          type: string
+          example: Essence Mascara Lash Princess
+        description:
+          type: string
+          example: The Essence Mascara Lash Princess is a popular mascara known for its volumizing effect.
+        category:
+          type: string
+          example: beauty
+        price:
+          type: string
+          example: "9.99"
+        discount_percentage:
+          type: string
+          nullable: true
+          example: "7.17"
+        rating:
+          type: string
+          nullable: true
+          example: "4.94"
+        stock:
+          type: integer
+          example: 99
+        thumbnail:
+          type: string
+          nullable: true
+          example: http://localhost:8000/storage/products/1/thumbnail.jpg
+        created_at:
+          type: string
+          format: date-time
+          example: "2026-02-04T12:00:00.000000Z"
+        updated_at:
+          type: string
+          format: date-time
+          example: "2026-02-04T12:00:00.000000Z"
+        creator:
+          $ref: '#/components/schemas/User'
+
+    ProductInput:
+      type: object
+      required:
+        - title
+        - category
+        - price
+        - stock
+      properties:
+        title:
+          type: string
+          example: New Product
+        description:
+          type: string
+          example: Product description
+        category:
+          type: string
+          example: beauty
+        price:
+          type: number
+          format: float
+          example: 29.99
+        discount_percentage:
+          type: number
+          format: float
+          example: 10.00
+        rating:
+          type: number
+          format: float
+          example: 4.5
+        stock:
+          type: integer
+          example: 50
+
+    LoginRequest:
+      type: object
+      required:
+        - email
+        - password
+      properties:
+        email:
+          type: string
+          format: email
+          example: admin@example.com
+        password:
+          type: string
+          format: password
+          example: password
+
+    LoginResponse:
+      type: object
+      properties:
+        data:
+          type: object
+          properties:
+            token:
+              type: string
+              example: "1|abc123..."
+            token_type:
+              type: string
+              example: Bearer
+            user:
+              $ref: '#/components/schemas/User'
+
+    PaginatedProducts:
+      type: object
+      properties:
+        data:
+          type: array
+          items:
+            $ref: '#/components/schemas/Product'
+        meta:
+          type: object
+          properties:
+            current_page:
+              type: integer
+              example: 1
+            per_page:
+              type: integer
+              example: 15
+            total:
+              type: integer
+              example: 50
+            last_page:
+              type: integer
+              example: 4
+
+    Error:
+      type: object
+      properties:
+        message:
+          type: string
+          example: The given data was invalid.
+        errors:
+          type: object
+          additionalProperties:
+            type: array
+            items:
+              type: string
+
+paths:
+  /auth/login:
+    post:
+      tags:
+        - Authentication
+      summary: Login
+      description: Authenticate user and receive access token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/LoginRequest'
+      responses:
+        '200':
+          description: Successful login
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/LoginResponse'
+        '422':
+          description: Validation error or invalid credentials
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+              example:
+                message: The given data was invalid.
+                errors:
+                  email:
+                    - The provided credentials are incorrect.
+
+  /auth/logout:
+    post:
+      tags:
+        - Authentication
+      summary: Logout
+      description: Revoke current access token
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Successfully logged out
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Successfully logged out
+        '401':
+          description: Unauthenticated
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Unauthenticated.
+
+  /auth/me:
+    get:
+      tags:
+        - Authentication
+      summary: Get current user
+      description: Get authenticated user information
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: User information
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/User'
+        '401':
+          description: Unauthenticated
+
+  /products:
+    get:
+      tags:
+        - Products
+      summary: List products
+      description: |
+        Get paginated list of products with filtering, sorting, and includes support.
+
+        **Filtering:**
+        - `filter[category]` - Filter by category (e.g., beauty, electronics)
+        - `filter[price_min]` - Minimum price
+        - `filter[price_max]` - Maximum price
+        - `filter[search]` - Search in title and description
+
+        **Sorting:**
+        - `sort=price` - Sort by price ascending
+        - `sort=-price` - Sort by price descending
+        - Multiple: `sort=price,-stock,title`
+
+        **Includes:**
+        - `include=creator` - Include product creator information
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: page
+          in: query
+          description: Page number
+          schema:
+            type: integer
+            default: 1
+        - name: per_page
+          in: query
+          description: Items per page (max 100)
+          schema:
+            type: integer
+            default: 15
+            maximum: 100
+        - name: filter[category]
+          in: query
+          description: Filter by category
+          schema:
+            type: string
+            example: beauty
+        - name: filter[price_min]
+          in: query
+          description: Minimum price
+          schema:
+            type: number
+            example: 10
+        - name: filter[price_max]
+          in: query
+          description: Maximum price
+          schema:
+            type: number
+            example: 100
+        - name: filter[search]
+          in: query
+          description: Search in title and description
+          schema:
+            type: string
+            example: mascara
+        - name: sort
+          in: query
+          description: Sort fields (prefix with - for descending)
+          schema:
+            type: string
+            example: -price
+        - name: include
+          in: query
+          description: Include relationships
+          schema:
+            type: string
+            example: creator
+      responses:
+        '200':
+          description: Paginated products list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaginatedProducts'
+        '401':
+          description: Unauthenticated
+
+    post:
+      tags:
+        - Products
+      summary: Create product
+      description: Create a new product (Admin only)
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '201':
+          description: Product created successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Forbidden - Only admin can create products
+        '422':
+          description: Validation error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /products/{id}:
+    get:
+      tags:
+        - Products
+      summary: Get product
+      description: Get a single product by ID
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Product details
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '401':
+          description: Unauthenticated
+        '404':
+          description: Product not found
+
+    put:
+      tags:
+        - Products
+      summary: Update product
+      description: Update a product (Admin or Creator only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '200':
+          description: Product updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Forbidden - Only admin or creator can update
+        '404':
+          description: Product not found
+        '422':
+          description: Validation error
+
+    patch:
+      tags:
+        - Products
+      summary: Update product (partial)
+      description: Partially update a product (Admin or Creator only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ProductInput'
+      responses:
+        '200':
+          description: Product updated successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Forbidden
+        '404':
+          description: Product not found
+
+    delete:
+      tags:
+        - Products
+      summary: Delete product
+      description: Delete a product (Admin only)
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: integer
+      responses:
+        '200':
+          description: Product deleted successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+                    example: Product deleted successfully
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Forbidden - Only admin can delete
+        '404':
+          description: Product not found
+
+  /products/{id}/thumbnail:
+    post:
+      tags:
+        - Products
+      summary: Upload product thumbnail
+      description: |
+        Upload a thumbnail image for a product (Admin or Creator only)
+
+        **Requirements:**
+        - Image only (jpeg, png, webp)
+        - Max size: 2MB
+      security:
+        - bearerAuth: []
+      parameters:
+        - name: id
+          in: path
+          required: true
+          description: Product ID
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              required:
+                - thumbnail
+              properties:
+                thumbnail:
+                  type: string
+                  format: binary
+                  description: Image file (jpeg/png/webp, max 2MB)
+      responses:
+        '200':
+          description: Thumbnail uploaded successfully
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  data:
+                    $ref: '#/components/schemas/Product'
+        '401':
+          description: Unauthenticated
+        '403':
+          description: Forbidden
+        '404':
+          description: Product not found
+        '422':
+          description: Validation error (invalid file type or size)
